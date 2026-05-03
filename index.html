@@ -141,7 +141,7 @@ body {
 }
 .list-title { font-size: 16px; font-weight: 600; }
 .list-tabs {
-  display: flex; margin: 0 20px 16px; background: #e8e0d8;
+  display: flex; margin: 0 20px 12px; background: #e8e0d8;
   border-radius: 12px; padding: 3px;
 }
 .list-tab {
@@ -151,6 +151,24 @@ body {
   font-family: inherit;
 }
 .list-tab.active { background: white; color: #3a3530; }
+
+/* Filter chips */
+.filter-bar {
+  display: flex; gap: 8px; padding: 0 20px 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.filter-bar::-webkit-scrollbar { display: none; }
+.filter-chip {
+  flex-shrink: 0; padding: 6px 14px; border-radius: 20px;
+  border: 1.5px solid #d4c8bc; background: white;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  color: #7a6e64; font-family: inherit; transition: all 0.15s;
+  white-space: nowrap;
+}
+.filter-chip:active { transform: scale(0.95); }
+.filter-chip.active {
+  border-color: #5a4e44; background: #5a4e44; color: white;
+}
 
 .record-item {
   margin: 0 20px 8px; background: white; border-radius: 14px;
@@ -175,6 +193,16 @@ body {
   cursor: pointer; padding: 4px;
 }
 .empty-state { text-align: center; padding: 40px 20px; color: #b8a99a; font-size: 14px; }
+
+.filter-summary {
+  margin: 0 20px 12px; padding: 10px 16px; background: white;
+  border-radius: 12px; font-size: 13px; color: #7a6e64;
+  display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+}
+.filter-summary-amount { font-weight: 700; font-size: 15px; }
+.filter-summary-amount.income { color: #43a047; }
+.filter-summary-amount.expense { color: #e53935; }
 </style>
 </head>
 <body>
@@ -253,6 +281,8 @@ body {
     <button class="list-tab active" id="tabExpense" onclick="switchTab('expense')">支出</button>
     <button class="list-tab" id="tabIncome" onclick="switchTab('income')">收入</button>
   </div>
+  <div class="filter-bar" id="filterBar"></div>
+  <div id="filterSummary"></div>
   <div id="listContent"></div>
 </div>
 
@@ -266,7 +296,7 @@ const EMOJIS = {
 };
 const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
-let currentYear, currentMonth, records = [], currentFormType = "", selectedCategory = "", currentListTab = "expense";
+let currentYear, currentMonth, records = [], currentFormType = "", selectedCategory = "", currentListTab = "expense", currentFilter = "";
 
 function init() {
   const d = new Date();
@@ -311,7 +341,6 @@ function render() {
   document.getElementById("totalIncome").textContent = fmt(incomeTotal);
   document.getElementById("totalExpense").textContent = fmt(expenseTotal);
 
-  // Category breakdowns
   const incomeByCat = {}, expenseByCat = {};
   records.forEach(r => {
     if (r.type === "income") incomeByCat[r.category] = (incomeByCat[r.category]||0) + r.amount;
@@ -412,8 +441,10 @@ function submitForm() {
 function openList() {
   document.getElementById("listTitle").textContent = currentYear + "年" + MONTHS[currentMonth];
   currentListTab = "expense";
+  currentFilter = "";
   document.getElementById("tabExpense").className = "list-tab active";
   document.getElementById("tabIncome").className = "list-tab";
+  renderFilterBar();
   renderList();
   document.getElementById("listView").classList.remove("hidden");
 }
@@ -422,17 +453,55 @@ function closeList() { document.getElementById("listView").classList.add("hidden
 
 function switchTab(tab) {
   currentListTab = tab;
+  currentFilter = "";
   document.getElementById("tabExpense").className = "list-tab" + (tab === "expense" ? " active" : "");
   document.getElementById("tabIncome").className = "list-tab" + (tab === "income" ? " active" : "");
+  renderFilterBar();
+  renderList();
+}
+
+function renderFilterBar() {
+  const cats = currentListTab === "expense" ? EXPENSE_CATS : INCOME_CATS;
+  const existingCats = new Set(records.filter(r => r.type === currentListTab).map(r => r.category));
+
+  let html = `<button class="filter-chip${currentFilter === '' ? ' active' : ''}" onclick="setFilter('')">全部</button>`;
+  cats.forEach(cat => {
+    if (existingCats.has(cat)) {
+      const label = (EMOJIS[cat]||'') + ' ' + cat.replace("收入","").replace("支出","");
+      html += `<button class="filter-chip${currentFilter === cat ? ' active' : ''}" onclick="setFilter('${cat}')">${label}</button>`;
+    }
+  });
+  document.getElementById("filterBar").innerHTML = html;
+}
+
+function setFilter(cat) {
+  currentFilter = cat;
+  renderFilterBar();
   renderList();
 }
 
 function renderList() {
-  const filtered = records.filter(r => r.type === currentListTab).sort((a,b) => new Date(b.date) - new Date(a.date));
+  let filtered = records.filter(r => r.type === currentListTab);
+  if (currentFilter) {
+    filtered = filtered.filter(r => r.category === currentFilter);
+  }
+  filtered.sort((a,b) => new Date(b.date) - new Date(a.date));
+
   const container = document.getElementById("listContent");
+  const summaryDiv = document.getElementById("filterSummary");
+
+  if (currentFilter && filtered.length > 0) {
+    const total = filtered.reduce((s,r) => s + r.amount, 0);
+    summaryDiv.innerHTML = `<div class="filter-summary">
+      <span>${currentFilter}  共${filtered.length}笔</span>
+      <span class="filter-summary-amount ${currentListTab}">${currentListTab === 'income' ? '+' : '-'}${fmt(total)}</span>
+    </div>`;
+  } else {
+    summaryDiv.innerHTML = '';
+  }
 
   if (filtered.length === 0) {
-    container.innerHTML = `<div class="empty-state">这个月还没有${currentListTab === "income" ? "收入" : "支出"}记录</div>`;
+    container.innerHTML = `<div class="empty-state">${currentFilter ? '该分类没有记录' : '这个月还没有' + (currentListTab === "income" ? "收入" : "支出") + '记录'}</div>`;
     return;
   }
 
@@ -461,6 +530,7 @@ function deleteRecord(id) {
   records = records.filter(r => r.id !== id);
   saveData();
   render();
+  renderFilterBar();
   renderList();
 }
 
